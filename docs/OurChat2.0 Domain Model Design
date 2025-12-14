@@ -1,0 +1,94 @@
+# OurChat2.0 领域模型设计
+
+## 一、User 实体
+
+| 字段         | 类型        | 描述                                  | 来源          |
+| ---------- | --------- | ----------------------------------- | ----------- |
+| id         | Long      | 用户唯一 ID，自动生成                        | 数据库         |
+| nickname   | String    | 用户昵称（可重复）                           | 数据库         |
+| email      | String    | 用户邮箱（唯一，可用于登录）                      | 数据库         |
+| password   | String    | 加密后的密码                              | 数据库         |
+| createTime | Timestamp | 用户注册时间                              | 数据库         |
+| online     | Boolean   | 用户当前在线状态                            | 运行态派生（不持久化） |
+| sessionId  | String    | 当前用户 Session / WebSocket ID（便于在线管理） | 运行态派生       |
+
+**说明**：
+
+* `online` 和 `sessionId` 属于运行态信息，重启后丢失。
+* 其他字段存入数据库，保证用户信息和登录凭证持久化。
+
+---
+
+## 二、ChatMessage 实体
+
+| 字段           | 类型        | 描述                    | 来源  |
+| ------------ | --------- | --------------------- | --- |
+| id           | Long      | 聊天消息唯一 ID             | 数据库 |
+| fromUserId   | Long      | 发送者用户 ID              | 数据库 |
+| fromNickname | String    | 发送者昵称                 | 数据库 |
+| toUserId     | Long      | 接收者用户 ID（null 表示全员可见） | 数据库 |
+| toNickname   | String    | 接收者昵称（私聊时有值）          | 数据库 |
+| content      | String    | 消息内容（纯文本，可限制长度）       | 数据库 |
+| type         | Enum      | 消息类型：群聊或私聊            | 数据库 |
+| createTime   | Timestamp | 发送时间                  | 数据库 |
+
+**说明**：
+
+* 发送人信息冗余存储 `fromNickname` 方便前端显示，不必每次 join User 表。
+* `toUserId` 为 null 表示全员可见。
+* `type` 用于区分群聊 / 私聊，便于 Service 层过滤消息可见性。
+
+---
+
+## 三、SystemMessage 实体
+
+| 字段         | 类型        | 描述        | 来源  |
+| ---------- | --------- | --------- | --- |
+| id         | Long      | 系统消息唯一 ID | 数据库 |
+| userId     | Long      | 上下线用户 ID  | 数据库 |
+| nickname   | String    | 上下线用户昵称   | 数据库 |
+| action     | Enum      | 上线 / 下线   | 数据库 |
+| createTime | Timestamp | 上下线时间     | 数据库 |
+
+**说明**：
+
+* 所有上线/下线事件都存储在数据库中，保证历史记录。
+* 前端只显示最新一条系统消息，但历史消息依然可追溯。
+
+---
+
+## 四、实体之间的关系（文字描述）
+
+1. **User → ChatMessage**
+
+   * 一个用户可以发送多条 ChatMessage
+   * ChatMessage 的 `fromUserId` 和 `toUserId` 都关联 User
+
+2. **User → SystemMessage**
+
+   * 一个用户可以有多条 SystemMessage（上线/下线记录）
+
+3. **运行态字段**
+
+   * `User.online`、`User.sessionId` 属于内存管理
+   * 不存数据库
+   * 用于判断在线列表和推送消息对象
+
+---
+
+## 五、注意事项
+
+1. **字段冗余合理**
+
+   * `fromNickname`、`toNickname` 存储在 ChatMessage 中，方便前端渲染
+   * 避免每次展示都查 User 表
+
+2. **私聊可离线**
+
+   * 即使 `toUserId` 离线，消息依然存储数据库
+   * Service 层负责消息推送逻辑
+
+3. **数据分层清晰**
+
+   * Model 仅负责数据结构
+   * 不涉及 WebSocket / JSP / Controller 逻辑
